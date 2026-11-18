@@ -1,0 +1,20 @@
+{
+  "parent_page_id": "41cdc5b517bb80bfafd4f1bfbe5667de",
+  "created_at": "2026-11-18T23:43:04.838971",
+  "databases": {
+    "contacts": "41cdc5b5-17bb-81a4-8c95-c38a8dcf4afa",
+    "opportunities": "41cdc5b5-17bb-81ee-9e6a-c16960d23916",
+    "sales_activities": "41cdc5b5-17bb-81bf-9d8d-e9f152aff31c",
+    "projects": "41cdc5b5-17bb-8172-a52a-e0990393f4e2",
+    "milestones": "41cdc5b5-17bb-8193-bf5d-f9f0ad4c22dd",
+    "materials": "41cdc5b5-17bb-8106-b18b-dd7c31a94999",
+    "decision_log": "41cdc5b5-17bb-81dc-a81b-ce362ac5cde4",
+    "costs_invoices": "41cdc5b5-17bb-81c1-b293-ceead658b242"
+  },
+  "sample_projects": {
+    "PRJ-101 (Maple Ave - Construction)": "41cdc5b5-17bb-81e8-9a61-c93f15ee5657",
+    "PRJ-102 (Pinecrest - Pre-Con)": "41cdc5b5-17bb-81ed-87a3-c91de2a6b2a0",
+    "PRJ-103 (Cedar Lane - Estimating)": "41cdc5b5-17bb-81c4-b89c-fc5c70ca828e",
+    "PRJ-104 (Birchwood - Warranty)": "41cdc5b5-17bb-8128-95ed-d4046c36a91f"
+  }
+}

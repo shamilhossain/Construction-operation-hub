@@ -95,3 +95,34 @@ python build_dashboard_and_templates.py
 * **Overdue Follow-up Warning:** `Elm Street Basement Finishing` flagged with `Overdue Follow-up - Needs Attention`.
 * **Client Off-App Decision Logging:** Text and phone call to Kevin logged with notifications to site supervisor Mike.
 * **Automated Cost Tracking:** 3 sample invoices (Paid, Unpaid with due date, and Flagged for review).
+
+---
+
+## ⚡ Assessment Part 3: Invoice & Cost Automation (n8n & Test Runner)
+
+### 1. Test Invoices (`test_invoices/`)
+Generate the 3 evaluation invoices in PDF format:
+```bash
+python generate_test_invoices.py
+```
+* `1_Apex_Lumber_INV-2026-881_Unpaid.pdf`: Valid project (`PRJ-101`), $4,850.00, Unpaid.
+* `2_Apex_Lumber_INV-2026-881_PAID_Update.pdf`: Same doc ref (`INV-2026-881`), Paid. Demonstrates deduplication and status update without double-counting.
+* `3_Unknown_Vendor_Missing_Project.pdf`: Metro Concrete Pumping ($1,200.00) without project name/code. Demonstrates `Needs Clarification / Review` flag.
+
+### 2. End-to-End Test Automation Runner
+Run the complete automated extraction and Notion pipeline in one command:
+```bash
+python test_automation_runner.py
+```
+To also test forwarding payloads to a live n8n webhook:
+```bash
+python test_automation_runner.py --webhook http://localhost:5678/webhook/invoice-upload
+```
+
+### 3. n8n Importable Workflow (`n8n_invoice_workflow.json`)
+Import `n8n_invoice_workflow.json` into n8n:
+1. Open n8n $\rightarrow$ **Workflows** $\rightarrow$ **Import from File**.
+2. Select `n8n_invoice_workflow.json`.
+3. Set your environment variables or credentials (`NOTION_TOKEN`, `NOTION_PROJECTS_DB_ID`, `NOTION_COSTS_DB_ID`).
+4. Activate the workflow to handle incoming Gmail attachments or trigger via the Webhook node.
+

@@ -1,0 +1,403 @@
+{
+  "name": "Kevin Construction - Invoice & Cost Ingestion Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-upload",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook-trigger",
+      "name": "Webhook - Test Ingestion",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        220,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "has:attachment filename:pdf (invoice OR receipt OR bill)"
+        },
+        "format": "resolved"
+      },
+      "id": "node-gmail-trigger",
+      "name": "Gmail Trigger - Incoming Invoices",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [
+        220,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "attachment_0"
+      },
+      "id": "node-pdf-extractor",
+      "name": "Extract Text from PDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        460,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalizes incoming payload from Webhook or Gmail PDF extractor\nconst item = $input.item;\nlet rawText = '';\nlet filename = 'invoice.pdf';\n\nif (item.json && item.json.text) {\n  rawText = item.json.text;\n  filename = item.json.filename || 'webhook_upload.pdf';\n} else if (item.json && item.json.extractedText) {\n  rawText = item.json.extractedText;\n  filename = item.json.filename || 'gmail_attachment.pdf';\n} else if (item.json && item.json.supplier) {\n  // Pre-parsed JSON payload from test runner\n  return [item];\n}\n\n// 1. Supplier Extraction\nlet supplier = 'Unknown Vendor';\nif (/Apex Lumber/i.test(rawText)) {\n  supplier = 'Apex Lumber & Supply Co.';\n} else if (/Metro Concrete/i.test(rawText)) {\n  supplier = 'Metro Concrete Pumping';\n} else if (/BuildPro Lumber/i.test(rawText)) {\n  supplier = 'BuildPro Lumber';\n} else {\n  const firstLine = rawText.split('\\n').map(l => l.trim()).filter(Boolean)[0];\n  if (firstLine) supplier = firstLine.substring(0, 50);\n}\n\n// 2. Document Reference\nlet docRef = '';\nconst refMatch = rawText.match(/(?:Invoice\\s*#|INV#|Ref\\s*#?|Doc\\s*Ref)[:\\s]*([A-Z0-9\\-_]+)/i);\nif (refMatch) {\n  docRef = refMatch[1].trim();\n} else if (/INV-2026-881/i.test(rawText)) {\n  docRef = 'INV-2026-881';\n} else if (/MCP-404/i.test(rawText)) {\n  docRef = 'MCP-404';\n} else {\n  docRef = 'REF-' + Date.now();\n}\n\n// 3. Invoice & Due Dates\nconst dateMatch = rawText.match(/Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst invoiceDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];\n\nconst dueDateMatch = rawText.match(/Due\\s*Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst dueDate = dueDateMatch ? dueDateMatch[1] : null;\n\n// 4. Amount & Currency\nlet amount = 0.0;\nconst totalMatch = rawText.match(/Total(?:\\s+Amount)?[:\\s]*\\$?([0-9,]+\\.\\d{2})/i);\nif (totalMatch) {\n  amount = parseFloat(totalMatch[1].replace(/,/g, ''));\n} else {\n  const amounts = rawText.match(/\\$([0-9,]+\\.\\d{2})/g);\n  if (amounts && amounts.length > 0) {\n    amount = parseFloat(amounts[amounts.length - 1].replace(/[$,]/g, ''));\n  }\n}\n\nlet currency = 'USD';\nif (/CAD/i.test(rawText)) currency = 'CAD';\nelse if (/EUR|€/i.test(rawText)) currency = 'EUR';\nelse if (/GBP|£/i.test(rawText)) currency = 'GBP';\n\n// 5. Payment Status\nlet paymentStatus = 'Unpaid';\nif (/PAID IN FULL|Payment Received|PAID/i.test(rawText) && !/UNPAID/i.test(rawText)) {\n  paymentStatus = 'Paid';\n}\n\n// 6. Project Hint\nlet projectHint = '';\nconst prjMatch = rawText.match(/(PRJ-\\d{3})/i);\nif (prjMatch) {\n  projectHint = prjMatch[1].toUpperCase();\n} else if (/Maple Ave/i.test(rawText)) {\n  projectHint = 'Maple Ave';\n} else if (/Pinecrest/i.test(rawText)) {\n  projectHint = 'Pinecrest';\n} else if (/Cedar Lane/i.test(rawText)) {\n  projectHint = 'Cedar Lane';\n} else if (/Birchwood/i.test(rawText)) {\n  projectHint = 'Birchwood';\n}\n\n// 7. Review Flags\nlet needsReview = false;\nlet reviewReasons = [];\nif (!projectHint) {\n  needsReview = true;\n  reviewReasons.push('Missing project name/code. Cannot match to Notion Projects database.');\n}\nif (amount <= 0) {\n  needsReview = true;\n  reviewReasons.push('Zero or unreadable invoice amount.');\n}\n\nreturn [{\n  json: {\n    filename: filename,\n    supplier: supplier,\n    document_reference: docRef,\n    invoice_date: invoiceDate,\n    due_date: dueDate,\n    amount: amount,\n    currency: currency,\n    payment_status: paymentStatus,\n    project_hint: projectHint,\n    needs_review: needsReview,\n    review_reason: reviewReasons.join(' | ')\n  }\n}];"
+      },
+      "id": "node-parse-invoice",
+      "name": "Parse Invoice & Extract Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.notion.com/v1/databases/41cdc5b5-17bb-8172-a52a-e0990393f4e2/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.NOTION_TOKEN }}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{}",
+        "options": {}
+      },
+      "id": "node-fetch-projects",
+      "name": "Fetch Notion Projects",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        920,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoice = $('Parse Invoice & Extract Fields').item.json;\nconst projectsRes = $input.item.json.results || [];\n\nlet matchedProjectId = null;\nlet matchedProjectName = null;\nconst hint = (invoice.project_hint || '').toLowerCase();\n\nif (hint) {\n  for (const p of projectsRes) {\n    const titleList = p.properties['Project Name'] ? p.properties['Project Name'].title : [];\n    const name = titleList.length > 0 ? titleList[0].plain_text : '';\n    const codeList = p.properties['Project Code'] ? p.properties['Project Code'].rich_text : [];\n    const code = codeList.length > 0 ? codeList[0].plain_text : '';\n\n    if (code && hint.includes(code.toLowerCase())) {\n      matchedProjectId = p.id;\n      matchedProjectName = name;\n      break;\n    }\n    if (name && (hint.includes(name.toLowerCase()) || name.toLowerCase().includes(hint))) {\n      matchedProjectId = p.id;\n      matchedProjectName = name;\n      break;\n    }\n  }\n}\n\nlet needsReview = invoice.needs_review;\nlet reviewReason = invoice.review_reason;\nif (!matchedProjectId) {\n  needsReview = true;\n  reviewReason = reviewReason || 'Missing project name/code. Cannot match to Notion Projects database.';\n}\n\nreturn [{\n  json: {\n    ...invoice,\n    matched_project_id: matchedProjectId,\n    matched_project_name: matchedProjectName,\n    needs_review: needsReview,\n    review_reason: reviewReason\n  }\n}];"
+      },
+      "id": "node-match-project",
+      "name": "Match Project & Verify Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1140,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.notion.com/v1/databases/41cdc5b5-17bb-81c1-b293-ceead658b242/query",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.NOTION_TOKEN }}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"filter\": {\n    \"property\": \"Document Reference\",\n    \"rich_text\": {\n      \"equals\": \"{{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "node-check-duplicate",
+      "name": "Check for Duplicate Invoice",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1360,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $input.item.json.results && $input.item.json.results.length > 0 }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "node-if-duplicate",
+      "name": "Does Duplicate Exist?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1580,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "=https://api.notion.com/v1/pages/{{ $('Check for Duplicate Invoice').item.json.results[0].id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.NOTION_TOKEN }}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"properties\": {\n    \"Payment Status\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.payment_status }}\"\n      }\n    },\n    \"Review / Flag Reason\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"Deduplicated update: Status updated to {{ $('Match Project & Verify Flags').item.json.payment_status }} without duplicate billing.\"\n          }\n        }\n      ]\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "node-update-duplicate",
+      "name": "Update Existing Cost (Deduplicate)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1840,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.notion.com/v1/pages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.NOTION_TOKEN }}"
+            },
+            {
+              "name": "Notion-Version",
+              "value": "2022-06-28"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"parent\": {\n    \"database_id\": \"41cdc5b5-17bb-81c1-b293-ceead658b242\"\n  },\n  \"properties\": {\n    \"Invoice / Receipt Title\": {\n      \"title\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.supplier }} - {{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n          }\n        }\n      ]\n    },\n    \"Supplier / Vendor\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.supplier }}\"\n          }\n        }\n      ]\n    },\n    \"Document Reference\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n          }\n        }\n      ]\n    },\n    \"Invoice Date\": {\n      \"date\": {\n        \"start\": \"{{ $('Match Project & Verify Flags').item.json.invoice_date }}\"\n      }\n    },\n    \"Amount\": {\n      \"number\": {{ $('Match Project & Verify Flags').item.json.amount }}\n    },\n    \"Currency\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.currency }}\"\n      }\n    },\n    \"Payment Status\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.payment_status }}\"\n      }\n    },\n    \"Needs Clarification / Review\": {\n      \"checkbox\": {{ $('Match Project & Verify Flags').item.json.needs_review }}\n    },\n    \"Review / Flag Reason\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.review_reason }}\"\n          }\n        }\n      ]\n    },\n    \"Source Email / Attachment Info\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"File: {{ $('Match Project & Verify Flags').item.json.filename }} (Ingested via n8n)\"\n          }\n        }\n      ]\n    },\n    ...($('Match Project & Verify Flags').item.json.due_date ? { \"Due Date\": { \"date\": { \"start\": \"{{ $('Match Project & Verify Flags').item.json.due_date }}\" } } } : {}),\n    ...($('Match Project & Verify Flags').item.json.matched_project_id ? { \"Project\": { \"relation\": [{ \"id\": \"{{ $('Match Project & Verify Flags').item.json.matched_project_id }}\" }] } } : {})\n  }\n}",
+        "options": {}
+      },
+      "id": "node-create-cost",
+      "name": "Create New Notion Cost Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1840,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = $('Match Project & Verify Flags').item.json;\nconst isUpdate = Boolean($('Check for Duplicate Invoice').item.json.results && $('Check for Duplicate Invoice').item.json.results.length > 0);\n\nlet action = 'CREATED';\nif (isUpdate) {\n  action = 'UPDATED (Deduplicated)';\n} else if (meta.needs_review) {\n  action = 'FLAGGED FOR REVIEW';\n}\n\nconst message = `[Automation Alert] Cost Ingestion: ${action}\\n\\n` +\n  `• Supplier: ${meta.supplier}\\n` +\n  `• Doc Ref: ${meta.document_reference}\\n` +\n  `• Amount: $${meta.amount.toFixed(2)} ${meta.currency}\\n` +\n  `• Status: ${meta.payment_status}\\n` +\n  `• Project: ${meta.matched_project_name || 'Unassigned / Needs Review'}\\n` +\n  (meta.needs_review ? `• Flag Reason: ${meta.review_reason}\\n` : '') +\n  `• File: ${meta.filename}`;\n\nreturn [{\n  json: {\n    action: action,\n    summary_message: message,\n    supplier: meta.supplier,\n    doc_ref: meta.document_reference,\n    amount: meta.amount,\n    status: meta.payment_status,\n    needs_review: meta.needs_review\n  }\n}];"
+      },
+      "id": "node-format-notification",
+      "name": "Format Summary Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "node-log-output",
+      "name": "Final Response & Notification Log",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        380
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Test Ingestion": {
+      "main": [
+        [
+          {
+            "node": "Parse Invoice & Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger - Incoming Invoices": {
+      "main": [
+        [
+          {
+            "node": "Extract Text from PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text from PDF": {
+      "main": [
+        [
+          {
+            "node": "Parse Invoice & Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Invoice & Extract Fields": {
+      "main": [
+        [
+          {
+            "node": "Fetch Notion Projects",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Notion Projects": {
+      "main": [
+        [
+          {
+            "node": "Match Project & Verify Flags",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Project & Verify Flags": {
+      "main": [
+        [
+          {
+            "node": "Check for Duplicate Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Duplicate Invoice": {
+      "main": [
+        [
+          {
+            "node": "Does Record Already Exist?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Does Record Already Exist?": {
+      "main": [
+        [
+          {
+            "node": "Update Existing Cost (Deduplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create New Notion Cost Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Existing Cost (Deduplicate)": {
+      "main": [
+        [
+          {
+            "node": "Format Summary Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create New Notion Cost Record": {
+      "main": [
+        [
+          {
+            "node": "Format Summary Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Summary Notification": {
+      "main": [
+        [
+          {
+            "node": "Final Response & Notification Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

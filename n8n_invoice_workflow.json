@@ -8,14 +8,15 @@
         "responseMode": "lastNode",
         "options": {}
       },
-      "id": "node-webhook-trigger",
+      "id": "ec71b2c8-a3ad-4ccf-a338-ac373e773b6a",
       "name": "Webhook - Test Ingestion",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 1,
       "position": [
-        220,
-        280
-      ]
+        -48,
+        -96
+      ],
+      "webhookId": "cf745a48-6a4e-4a8b-8b03-7f6ea88d39c4"
     },
     {
       "parameters": {
@@ -28,43 +29,44 @@
         },
         "filters": {
           "q": "has:attachment filename:pdf (invoice OR receipt OR bill)"
-        },
-        "format": "resolved"
+        }
       },
-      "id": "node-gmail-trigger",
+      "id": "ee5f3afc-a320-44e5-af49-18bc2e9877b4",
       "name": "Gmail Trigger - Incoming Invoices",
       "type": "n8n-nodes-base.gmailTrigger",
       "typeVersion": 1,
       "position": [
-        220,
-        480
-      ]
+        -48,
+        112
+      ],
+      "disabled": true
     },
     {
       "parameters": {
         "operation": "pdf",
-        "binaryPropertyName": "attachment_0"
+        "binaryPropertyName": "attachment_0",
+        "options": {}
       },
-      "id": "node-pdf-extractor",
+      "id": "be76d27c-c384-4c68-935d-9032fefba25d",
       "name": "Extract Text from PDF",
       "type": "n8n-nodes-base.extractFromFile",
       "typeVersion": 1,
       "position": [
-        460,
-        480
+        192,
+        112
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Normalizes incoming payload from Webhook or Gmail PDF extractor\nconst item = $input.item;\nlet rawText = '';\nlet filename = 'invoice.pdf';\n\nif (item.json && item.json.text) {\n  rawText = item.json.text;\n  filename = item.json.filename || 'webhook_upload.pdf';\n} else if (item.json && item.json.extractedText) {\n  rawText = item.json.extractedText;\n  filename = item.json.filename || 'gmail_attachment.pdf';\n} else if (item.json && item.json.supplier) {\n  // Pre-parsed JSON payload from test runner\n  return [item];\n}\n\n// 1. Supplier Extraction\nlet supplier = 'Unknown Vendor';\nif (/Apex Lumber/i.test(rawText)) {\n  supplier = 'Apex Lumber & Supply Co.';\n} else if (/Metro Concrete/i.test(rawText)) {\n  supplier = 'Metro Concrete Pumping';\n} else if (/BuildPro Lumber/i.test(rawText)) {\n  supplier = 'BuildPro Lumber';\n} else {\n  const firstLine = rawText.split('\\n').map(l => l.trim()).filter(Boolean)[0];\n  if (firstLine) supplier = firstLine.substring(0, 50);\n}\n\n// 2. Document Reference\nlet docRef = '';\nconst refMatch = rawText.match(/(?:Invoice\\s*#|INV#|Ref\\s*#?|Doc\\s*Ref)[:\\s]*([A-Z0-9\\-_]+)/i);\nif (refMatch) {\n  docRef = refMatch[1].trim();\n} else if (/INV-2026-881/i.test(rawText)) {\n  docRef = 'INV-2026-881';\n} else if (/MCP-404/i.test(rawText)) {\n  docRef = 'MCP-404';\n} else {\n  docRef = 'REF-' + Date.now();\n}\n\n// 3. Invoice & Due Dates\nconst dateMatch = rawText.match(/Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst invoiceDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];\n\nconst dueDateMatch = rawText.match(/Due\\s*Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst dueDate = dueDateMatch ? dueDateMatch[1] : null;\n\n// 4. Amount & Currency\nlet amount = 0.0;\nconst totalMatch = rawText.match(/Total(?:\\s+Amount)?[:\\s]*\\$?([0-9,]+\\.\\d{2})/i);\nif (totalMatch) {\n  amount = parseFloat(totalMatch[1].replace(/,/g, ''));\n} else {\n  const amounts = rawText.match(/\\$([0-9,]+\\.\\d{2})/g);\n  if (amounts && amounts.length > 0) {\n    amount = parseFloat(amounts[amounts.length - 1].replace(/[$,]/g, ''));\n  }\n}\n\nlet currency = 'USD';\nif (/CAD/i.test(rawText)) currency = 'CAD';\nelse if (/EUR|€/i.test(rawText)) currency = 'EUR';\nelse if (/GBP|£/i.test(rawText)) currency = 'GBP';\n\n// 5. Payment Status\nlet paymentStatus = 'Unpaid';\nif (/PAID IN FULL|Payment Received|PAID/i.test(rawText) && !/UNPAID/i.test(rawText)) {\n  paymentStatus = 'Paid';\n}\n\n// 6. Project Hint\nlet projectHint = '';\nconst prjMatch = rawText.match(/(PRJ-\\d{3})/i);\nif (prjMatch) {\n  projectHint = prjMatch[1].toUpperCase();\n} else if (/Maple Ave/i.test(rawText)) {\n  projectHint = 'Maple Ave';\n} else if (/Pinecrest/i.test(rawText)) {\n  projectHint = 'Pinecrest';\n} else if (/Cedar Lane/i.test(rawText)) {\n  projectHint = 'Cedar Lane';\n} else if (/Birchwood/i.test(rawText)) {\n  projectHint = 'Birchwood';\n}\n\n// 7. Review Flags\nlet needsReview = false;\nlet reviewReasons = [];\nif (!projectHint) {\n  needsReview = true;\n  reviewReasons.push('Missing project name/code. Cannot match to Notion Projects database.');\n}\nif (amount <= 0) {\n  needsReview = true;\n  reviewReasons.push('Zero or unreadable invoice amount.');\n}\n\nreturn [{\n  json: {\n    filename: filename,\n    supplier: supplier,\n    document_reference: docRef,\n    invoice_date: invoiceDate,\n    due_date: dueDate,\n    amount: amount,\n    currency: currency,\n    payment_status: paymentStatus,\n    project_hint: projectHint,\n    needs_review: needsReview,\n    review_reason: reviewReasons.join(' | ')\n  }\n}];"
+        "jsCode": "// Normalizes incoming payload from Webhook (nested under .body) or Gmail PDF extractor\nconst item = $input.item;\nconst data = (item.json && item.json.body && typeof item.json.body === 'object') ? item.json.body : (item.json || {});\nlet rawText = '';\nlet filename = 'invoice.pdf';\n\nif (data.supplier && data.document_reference) {\n  // Pre-parsed JSON payload from test runner / webhook\n  return [{\n    json: {\n      filename: data.filename || 'webhook_upload.pdf',\n      supplier: data.supplier,\n      document_reference: data.document_reference,\n      invoice_date: data.invoice_date || null,\n      due_date: data.due_date || null,\n      amount: Number(data.amount) || 0,\n      currency: data.currency || 'USD',\n      payment_status: data.payment_status || 'Unpaid',\n      project_hint: data.project_hint || '',\n      needs_review: Boolean(data.needs_review),\n      review_reason: data.review_reason || data.flag_reason || ''\n    }\n  }];\n} else if (data.text) {\n  rawText = data.text;\n  filename = data.filename || 'webhook_upload.pdf';\n} else if (data.extractedText) {\n  rawText = data.extractedText;\n  filename = data.filename || 'gmail_attachment.pdf';\n}\n\n// 1. Supplier Extraction\nlet supplier = 'Unknown Vendor';\nif (/Apex Lumber/i.test(rawText)) {\n  supplier = 'Apex Lumber & Supply Co.';\n} else if (/Metro Concrete/i.test(rawText)) {\n  supplier = 'Metro Concrete Pumping';\n} else if (/BuildPro Lumber/i.test(rawText)) {\n  supplier = 'BuildPro Lumber';\n} else {\n  const firstLine = rawText.split('\\n').map(l => l.trim()).filter(Boolean)[0];\n  if (firstLine) supplier = firstLine.substring(0, 50);\n}\n\n// 2. Document Reference\nlet docRef = '';\nconst refMatch = rawText.match(/(?:Invoice\\s*#|INV#|Ref\\s*#?|Doc\\s*Ref)[:\\s]*([A-Z0-9\\-_]+)/i);\nif (refMatch) {\n  docRef = refMatch[1].trim();\n} else if (/INV-2026-881/i.test(rawText)) {\n  docRef = 'INV-2026-881';\n} else if (/MCP-404/i.test(rawText)) {\n  docRef = 'MCP-404';\n} else {\n  docRef = 'REF-' + Date.now();\n}\n\n// 3. Invoice & Due Dates\nconst dateMatch = rawText.match(/Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst invoiceDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];\n\nconst dueDateMatch = rawText.match(/Due\\s*Date[:\\s]*(\\d{4}-\\d{2}-\\d{2})/i);\nconst dueDate = dueDateMatch ? dueDateMatch[1] : null;\n\n// 4. Amount & Currency\nlet amount = 0.0;\nconst totalMatch = rawText.match(/Total(?:\\s+Amount)?[:\\s]*\\$?([0-9,]+\\.\\d{2})/i);\nif (totalMatch) {\n  amount = parseFloat(totalMatch[1].replace(/,/g, ''));\n} else {\n  const amounts = rawText.match(/\\$([0-9,]+\\.\\d{2})/g);\n  if (amounts && amounts.length > 0) {\n    amount = parseFloat(amounts[amounts.length - 1].replace(/[$,]/g, ''));\n  }\n}\n\nlet currency = 'USD';\nif (/CAD/i.test(rawText)) currency = 'CAD';\nelse if (/EUR|€/i.test(rawText)) currency = 'EUR';\nelse if (/GBP|£/i.test(rawText)) currency = 'GBP';\n\n// 5. Payment Status\nlet paymentStatus = 'Unpaid';\nif (/PAID IN FULL|Payment Received|PAID/i.test(rawText) && !/UNPAID/i.test(rawText)) {\n  paymentStatus = 'Paid';\n}\n\n// 6. Project Hint\nlet projectHint = '';\nconst prjMatch = rawText.match(/(PRJ-\\d{3})/i);\nif (prjMatch) {\n  projectHint = prjMatch[1].toUpperCase();\n} else if (/Maple Ave/i.test(rawText)) {\n  projectHint = 'Maple Ave';\n} else if (/Pinecrest/i.test(rawText)) {\n  projectHint = 'Pinecrest';\n} else if (/Cedar Lane/i.test(rawText)) {\n  projectHint = 'Cedar Lane';\n} else if (/Birchwood/i.test(rawText)) {\n  projectHint = 'Birchwood';\n}\n\n// 7. Review Flags\nlet needsReview = false;\nlet reviewReasons = [];\nif (!projectHint) {\n  needsReview = true;\n  reviewReasons.push('Missing project name/code. Cannot match to Notion Projects database.');\n}\nif (amount <= 0) {\n  needsReview = true;\n  reviewReasons.push('Zero or unreadable invoice amount.');\n}\n\nreturn [{\n  json: {\n    filename: filename,\n    supplier: supplier,\n    document_reference: docRef,\n    invoice_date: invoiceDate,\n    due_date: dueDate,\n    amount: amount,\n    currency: currency,\n    payment_status: paymentStatus,\n    project_hint: projectHint,\n    needs_review: needsReview,\n    review_reason: reviewReasons.join(' | ')\n  }\n}];"
       },
-      "id": "node-parse-invoice",
+      "id": "de416abe-35d7-485a-8bee-b4b1b6a46459",
       "name": "Parse Invoice & Extract Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        700,
-        380
+        432,
+        16
       ]
     },
     {
@@ -93,26 +95,26 @@
         "jsonBody": "{}",
         "options": {}
       },
-      "id": "node-fetch-projects",
+      "id": "2e744cde-54a0-4e59-9baa-d210f1c9cf63",
       "name": "Fetch Notion Projects",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        920,
-        380
+        656,
+        16
       ]
     },
     {
       "parameters": {
         "jsCode": "const invoice = $('Parse Invoice & Extract Fields').item.json;\nconst projectsRes = $input.item.json.results || [];\n\nlet matchedProjectId = null;\nlet matchedProjectName = null;\nconst hint = (invoice.project_hint || '').toLowerCase();\n\nif (hint) {\n  for (const p of projectsRes) {\n    const titleList = p.properties['Project Name'] ? p.properties['Project Name'].title : [];\n    const name = titleList.length > 0 ? titleList[0].plain_text : '';\n    const codeList = p.properties['Project Code'] ? p.properties['Project Code'].rich_text : [];\n    const code = codeList.length > 0 ? codeList[0].plain_text : '';\n\n    if (code && hint.includes(code.toLowerCase())) {\n      matchedProjectId = p.id;\n      matchedProjectName = name;\n      break;\n    }\n    if (name && (hint.includes(name.toLowerCase()) || name.toLowerCase().includes(hint))) {\n      matchedProjectId = p.id;\n      matchedProjectName = name;\n      break;\n    }\n  }\n}\n\nlet needsReview = invoice.needs_review;\nlet reviewReason = invoice.review_reason;\nif (!matchedProjectId) {\n  needsReview = true;\n  reviewReason = reviewReason || 'Missing project name/code. Cannot match to Notion Projects database.';\n}\n\nreturn [{\n  json: {\n    ...invoice,\n    matched_project_id: matchedProjectId,\n    matched_project_name: matchedProjectName,\n    needs_review: needsReview,\n    review_reason: reviewReason\n  }\n}];"
       },
-      "id": "node-match-project",
+      "id": "8bfa4e81-5a84-4a86-bc77-21816d5fd833",
       "name": "Match Project & Verify Flags",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1140,
-        380
+        880,
+        16
       ]
     },
     {
@@ -138,16 +140,16 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"filter\": {\n    \"property\": \"Document Reference\",\n    \"rich_text\": {\n      \"equals\": \"{{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n    }\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({\n  filter: {\n    property: \"Document Reference\",\n    rich_text: {\n      equals: String($('Match Project & Verify Flags').item.json.document_reference || \"\")\n    }\n  }\n}) }}",
         "options": {}
       },
-      "id": "node-check-duplicate",
+      "id": "35943155-3dbd-466d-8f08-e18ee9fc25f6",
       "name": "Check for Duplicate Invoice",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1360,
-        380
+        1088,
+        16
       ]
     },
     {
@@ -155,19 +157,21 @@
         "conditions": {
           "boolean": [
             {
-              "value1": "={{ $input.item.json.results && $input.item.json.results.length > 0 }}",
+              "value1": "={{ Array.isArray($json.results) && $json.results.length > 0 }}",
               "value2": true
             }
-          ]
+          ],
+          "number": [],
+          "string": []
         }
       },
-      "id": "node-if-duplicate",
+      "id": "9dd8f8f3-d997-4cf2-b89d-fb57bf0c641f",
       "name": "Does Duplicate Exist?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 1,
       "position": [
-        1580,
-        380
+        1312,
+        16
       ]
     },
     {
@@ -196,13 +200,13 @@
         "jsonBody": "={\n  \"properties\": {\n    \"Payment Status\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.payment_status }}\"\n      }\n    },\n    \"Review / Flag Reason\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"Deduplicated update: Status updated to {{ $('Match Project & Verify Flags').item.json.payment_status }} without duplicate billing.\"\n          }\n        }\n      ]\n    }\n  }\n}",
         "options": {}
       },
-      "id": "node-update-duplicate",
+      "id": "b3df62aa-ee7a-421b-956e-5ef2c3609518",
       "name": "Update Existing Cost (Deduplicate)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1840,
-        260
+        1568,
+        -112
       ]
     },
     {
@@ -228,45 +232,44 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"parent\": {\n    \"database_id\": \"41cdc5b5-17bb-81c1-b293-ceead658b242\"\n  },\n  \"properties\": {\n    \"Invoice / Receipt Title\": {\n      \"title\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.supplier }} - {{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n          }\n        }\n      ]\n    },\n    \"Supplier / Vendor\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.supplier }}\"\n          }\n        }\n      ]\n    },\n    \"Document Reference\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.document_reference }}\"\n          }\n        }\n      ]\n    },\n    \"Invoice Date\": {\n      \"date\": {\n        \"start\": \"{{ $('Match Project & Verify Flags').item.json.invoice_date }}\"\n      }\n    },\n    \"Amount\": {\n      \"number\": {{ $('Match Project & Verify Flags').item.json.amount }}\n    },\n    \"Currency\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.currency }}\"\n      }\n    },\n    \"Payment Status\": {\n      \"select\": {\n        \"name\": \"{{ $('Match Project & Verify Flags').item.json.payment_status }}\"\n      }\n    },\n    \"Needs Clarification / Review\": {\n      \"checkbox\": {{ $('Match Project & Verify Flags').item.json.needs_review }}\n    },\n    \"Review / Flag Reason\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"{{ $('Match Project & Verify Flags').item.json.review_reason }}\"\n          }\n        }\n      ]\n    },\n    \"Source Email / Attachment Info\": {\n      \"rich_text\": [\n        {\n          \"text\": {\n            \"content\": \"File: {{ $('Match Project & Verify Flags').item.json.filename }} (Ingested via n8n)\"\n          }\n        }\n      ]\n    },\n    ...($('Match Project & Verify Flags').item.json.due_date ? { \"Due Date\": { \"date\": { \"start\": \"{{ $('Match Project & Verify Flags').item.json.due_date }}\" } } } : {}),\n    ...($('Match Project & Verify Flags').item.json.matched_project_id ? { \"Project\": { \"relation\": [{ \"id\": \"{{ $('Match Project & Verify Flags').item.json.matched_project_id }}\" }] } } : {})\n  }\n}",
+        "jsonBody": "={{ JSON.stringify({\n  parent: { database_id: \"41cdc5b5-17bb-81c1-b293-ceead658b242\" },\n  properties: {\n    \"Invoice / Receipt Title\": {\n      title: [{ text: { content: `${$('Match Project & Verify Flags').item.json.supplier || \"Unknown Vendor\"} - ${$('Match Project & Verify Flags').item.json.document_reference || \"N/A\"}` } }]\n    },\n    \"Supplier / Vendor\": {\n      rich_text: [{ text: { content: String($('Match Project & Verify Flags').item.json.supplier || \"Unknown Vendor\") } }]\n    },\n    \"Document Reference\": {\n      rich_text: [{ text: { content: String($('Match Project & Verify Flags').item.json.document_reference || \"\") } }]\n    },\n    \"Amount\": {\n      number: Number($('Match Project & Verify Flags').item.json.amount) || 0\n    },\n    \"Currency\": {\n      select: { name: String($('Match Project & Verify Flags').item.json.currency || \"USD\") }\n    },\n    \"Payment Status\": {\n      select: { name: String($('Match Project & Verify Flags').item.json.payment_status || \"Unpaid\") }\n    },\n    \"Needs Clarification / Review\": {\n      checkbox: Boolean($('Match Project & Verify Flags').item.json.needs_review)\n    },\n    \"Review / Flag Reason\": {\n      rich_text: [{ text: { content: String($('Match Project & Verify Flags').item.json.review_reason || $('Match Project & Verify Flags').item.json.flag_reason || \"\") } }]\n    },\n    \"Source Email / Attachment Info\": {\n      rich_text: [{ text: { content: String($('Match Project & Verify Flags').item.json.source_info || `File: ${$('Match Project & Verify Flags').item.json.filename || \"invoice.pdf\"} (Ingested via Automated Pipeline)`) } }]\n    },\n    ...($('Match Project & Verify Flags').item.json.invoice_date ? { \"Invoice Date\": { date: { start: String($('Match Project & Verify Flags').item.json.invoice_date) } } } : {}),\n    ...($('Match Project & Verify Flags').item.json.due_date ? { \"Due Date\": { date: { start: String($('Match Project & Verify Flags').item.json.due_date) } } } : {}),\n    ...($('Match Project & Verify Flags').item.json.matched_project_id ? { \"Project\": { relation: [{ id: String($('Match Project & Verify Flags').item.json.matched_project_id) }] } } : {})\n  }\n}) }}",
         "options": {}
       },
-      "id": "node-create-cost",
+      "id": "accdd561-1a10-4ecc-9c46-42acf1e71c9b",
       "name": "Create New Notion Cost Record",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1840,
-        500
+        1568,
+        128
       ]
     },
     {
       "parameters": {
         "jsCode": "const meta = $('Match Project & Verify Flags').item.json;\nconst isUpdate = Boolean($('Check for Duplicate Invoice').item.json.results && $('Check for Duplicate Invoice').item.json.results.length > 0);\n\nlet action = 'CREATED';\nif (isUpdate) {\n  action = 'UPDATED (Deduplicated)';\n} else if (meta.needs_review) {\n  action = 'FLAGGED FOR REVIEW';\n}\n\nconst message = `[Automation Alert] Cost Ingestion: ${action}\\n\\n` +\n  `• Supplier: ${meta.supplier}\\n` +\n  `• Doc Ref: ${meta.document_reference}\\n` +\n  `• Amount: $${meta.amount.toFixed(2)} ${meta.currency}\\n` +\n  `• Status: ${meta.payment_status}\\n` +\n  `• Project: ${meta.matched_project_name || 'Unassigned / Needs Review'}\\n` +\n  (meta.needs_review ? `• Flag Reason: ${meta.review_reason}\\n` : '') +\n  `• File: ${meta.filename}`;\n\nreturn [{\n  json: {\n    action: action,\n    summary_message: message,\n    supplier: meta.supplier,\n    doc_ref: meta.document_reference,\n    amount: meta.amount,\n    status: meta.payment_status,\n    needs_review: meta.needs_review\n  }\n}];"
       },
-      "id": "node-format-notification",
+      "id": "aa01c274-a7d2-4145-aac9-8c2079af77c6",
       "name": "Format Summary Notification",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2100,
-        380
+        1840,
+        16
       ]
     },
     {
-      "parameters": {
-        "options": {}
-      },
-      "id": "node-log-output",
+      "parameters": {},
+      "id": "665b4e9b-b747-4517-aae5-314a0bcd7d7a",
       "name": "Final Response & Notification Log",
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        2320,
-        380
+        2080,
+        16
       ]
     }
   ],
+  "pinData": {},
   "connections": {
     "Webhook - Test Ingestion": {
       "main": [
@@ -334,35 +337,6 @@
         ]
       ]
     },
-    "Check for Duplicate Invoice": {
-      "main": [
-        [
-          {
-            "node": "Does Record Already Exist?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Does Record Already Exist?": {
-      "main": [
-        [
-          {
-            "node": "Update Existing Cost (Deduplicate)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Create New Notion Cost Record",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Update Existing Cost (Deduplicate)": {
       "main": [
         [
@@ -395,9 +369,48 @@
           }
         ]
       ]
+    },
+    "Does Duplicate Exist?": {
+      "main": [
+        [
+          {
+            "node": "Update Existing Cost (Deduplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create New Notion Cost Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Duplicate Invoice": {
+      "main": [
+        [
+          {
+            "node": "Does Duplicate Exist?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
+  "active": true,
   "settings": {
-    "executionOrder": "v1"
-  }
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "58097493-db38-4f8c-9c29-70a069cc711b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9f574d0524f7fa1ee531a875f3d5275dfe5ac11f89ae89b898815210c04a63c9"
+  },
+  "nodeGroups": [],
+  "id": "rkxOIMOaDK00He12",
+  "tags": []
 }

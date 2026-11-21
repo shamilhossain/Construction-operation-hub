@@ -1,0 +1,11 @@
+{
+  "supplier": "BuildPro Lumber & Supply",
+  "document_reference": "INV-BPL-8821",
+  "invoice_date": "2026-11-05",
+  "due_date": "2026-11-20",
+  "amount": 18450.00,
+  "currency": "USD",
+  "payment_status": "Paid",
+  "project_hint": "PRJ-101",
+  "filename": "BuildPro_INV-BPL-8821_PAID.pdf"
+}

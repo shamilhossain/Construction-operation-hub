@@ -1,0 +1,11 @@
+{
+  "supplier": "Summit Electrical Supply",
+  "document_reference": "INV-2026-999",
+  "invoice_date": "2026-11-21",
+  "due_date": "2026-12-10",
+  "amount": 0.00,
+  "currency": "USD",
+  "payment_status": "Unpaid",
+  "project_hint": "",
+  "filename": "Summit_Electrical_Incomplete.pdf"
+}

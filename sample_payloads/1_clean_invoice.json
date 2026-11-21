@@ -1,0 +1,11 @@
+{
+  "supplier": "Titan Steel Fabricators",
+  "document_reference": "INV-2026-904",
+  "invoice_date": "2026-11-20",
+  "due_date": "2026-12-20",
+  "amount": 6400.00,
+  "currency": "USD",
+  "payment_status": "Unpaid",
+  "project_hint": "PRJ-102",
+  "filename": "Titan_Steel_INV-2026-904.pdf"
+}
